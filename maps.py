@@ -1,5 +1,6 @@
 from urllib.parse import quote_plus
 import re
+import shutil
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from logger import get_logger
@@ -13,21 +14,45 @@ def _text(locator):
     except Exception:
         return ""
 
+def _chromium_executable():
+    """
+    Streamlit Community Cloud installs Linux packages from packages.txt.
+    Prefer the system Chromium installed by apt; fall back to Playwright's
+    bundled browser if it is available.
+    """
+    for candidate in (
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+    ):
+        if shutil.which(candidate) or __import__("os").path.exists(candidate):
+            return candidate
+    return None
+
 def search_google_maps(niche, city, state, quantity=5):
-    """
-    Pesquisa resultados públicos no Google Maps usando navegador automatizado.
-    Não tenta contornar CAPTCHA, login ou mecanismos de segurança.
-    """
     query = f"{niche} {city} {state}".strip()
     url = "https://www.google.com/maps/search/" + quote_plus(query)
 
     results = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--disable-dev-shm-usage", "--no-sandbox"]
-        )
+        executable = _chromium_executable()
+
+        launch_args = {
+            "headless": True,
+            "args": ["--disable-dev-shm-usage", "--no-sandbox"],
+        }
+
+        if executable:
+            launch_args["executable_path"] = executable
+
+        try:
+            browser = p.chromium.launch(**launch_args)
+        except Exception as exc:
+            raise RuntimeError(
+                "Não foi possível iniciar o Chromium no servidor. "
+                "Verifique se o pacote chromium foi instalado pelo Streamlit."
+            ) from exc
 
         page = browser.new_page(
             locale="pt-BR",
@@ -73,7 +98,6 @@ def search_google_maps(niche, city, state, quantity=5):
 
                         if href.startswith("tel:"):
                             telefone = href[4:].strip()
-
                         elif (
                             href.startswith(("http://", "https://"))
                             and "google." not in href
@@ -83,8 +107,7 @@ def search_google_maps(niche, city, state, quantity=5):
 
                         if not endereco and re.search(
                             r"\b(Rua|R\.|Avenida|Av\.|Rodovia|Estrada|Travessa|Praça)\b",
-                            label,
-                            re.I,
+                            label, re.I
                         ):
                             endereco = label
                 except Exception:
@@ -93,14 +116,13 @@ def search_google_maps(niche, city, state, quantity=5):
                 for line in lines[1:]:
                     if not endereco and re.search(
                         r"\b(Rua|R\.|Avenida|Av\.|Rodovia|Estrada|Travessa|Praça)\b",
-                        line,
-                        re.I,
+                        line, re.I
                     ):
                         endereco = line
 
                     if not telefone and re.search(
                         r"(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-.\s]?\d{4}",
-                        line,
+                        line
                     ):
                         telefone = line
 
@@ -116,19 +138,18 @@ def search_google_maps(niche, city, state, quantity=5):
                 })
 
             if not results:
-                # Fallback simples para nomes de lugares.
                 links = page.locator('a[href*="/maps/place/"]')
                 seen = set()
 
                 for i in range(min(links.count(), quantity * 2)):
                     link = links.nth(i)
-                    name = (link.inner_text() or "").strip().splitlines()
+                    name_lines = (link.inner_text() or "").strip().splitlines()
                     href = link.get_attribute("href")
 
-                    if name and href and name[0] not in seen:
-                        seen.add(name[0])
+                    if name_lines and href and name_lines[0] not in seen:
+                        seen.add(name_lines[0])
                         results.append({
-                            "nome": name[0],
+                            "nome": name_lines[0],
                             "cidade": city,
                             "estado": state,
                             "endereco": None,
@@ -142,9 +163,7 @@ def search_google_maps(niche, city, state, quantity=5):
                         break
 
         except PlaywrightTimeoutError:
-            raise RuntimeError(
-                "A pesquisa demorou demais para responder."
-            )
+            raise RuntimeError("A pesquisa demorou demais para responder.")
         finally:
             browser.close()
 
