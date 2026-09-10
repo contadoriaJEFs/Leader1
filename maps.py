@@ -1,20 +1,22 @@
 from urllib.parse import quote_plus
+import re
+
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from utils.logger import get_logger
+from logger import get_logger
 
 logger = get_logger()
 
-def _first_text(locator):
+def _text(locator):
     try:
-        txt = locator.first.inner_text(timeout=2500)
-        return txt.strip() if txt else None
+        value = locator.first.inner_text(timeout=2500)
+        return value.strip() if value else ""
     except Exception:
-        return None
+        return ""
 
 def search_google_maps(niche, city, state, quantity=5):
     """
-    Coleta dados visíveis de resultados públicos do Google Maps.
-    Não tenta resolver CAPTCHA, login ou outros mecanismos anti-bot.
+    Pesquisa resultados públicos no Google Maps usando navegador automatizado.
+    Não tenta contornar CAPTCHA, login ou mecanismos de segurança.
     """
     query = f"{niche} {city} {state}".strip()
     url = "https://www.google.com/maps/search/" + quote_plus(query)
@@ -26,34 +28,35 @@ def search_google_maps(niche, city, state, quantity=5):
             headless=True,
             args=["--disable-dev-shm-usage", "--no-sandbox"]
         )
+
         page = browser.new_page(
             locale="pt-BR",
             viewport={"width": 1365, "height": 900},
-            user_agent=(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            ),
         )
 
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_timeout(3500)
+            page.wait_for_timeout(4000)
 
-            body = (page.locator("body").inner_text(timeout=5000) or "").lower()
-            if "captcha" in body or "unusual traffic" in body or "não sou um robô" in body:
+            body = page.locator("body").inner_text(timeout=5000).lower()
+
+            if any(term in body for term in [
+                "captcha",
+                "unusual traffic",
+                "não sou um robô",
+                "verificação"
+            ]):
                 raise RuntimeError(
-                    "O mecanismo de busca apresentou um CAPTCHA/bloqueio. "
-                    "A aplicação não tenta contorná-lo."
+                    "O Google apresentou uma verificação/CAPTCHA. "
+                    "A aplicação não tenta contornar esse mecanismo."
                 )
 
-            # O Google Maps muda o DOM com frequência. Estes seletores são
-            # deliberadamente simples e têm fallback por links / texto.
             cards = page.locator('div[role="article"]')
             count = min(cards.count(), quantity)
 
             for i in range(count):
                 card = cards.nth(i)
-                text = _first_text(card) or ""
+                text = _text(card)
                 lines = [x.strip() for x in text.splitlines() if x.strip()]
 
                 nome = lines[0] if lines else None
@@ -61,29 +64,44 @@ def search_google_maps(niche, city, state, quantity=5):
                 telefone = None
                 website = None
 
-                # Links do cartão
                 try:
                     links = card.locator("a")
                     for j in range(links.count()):
-                        a = links.nth(j)
-                        href = a.get_attribute("href") or ""
-                        label = (a.inner_text() or "").strip()
+                        link = links.nth(j)
+                        href = link.get_attribute("href") or ""
+                        label = (link.inner_text() or "").strip()
 
                         if href.startswith("tel:"):
-                            telefone = href.replace("tel:", "").strip()
-                        elif href.startswith("http") and "google." not in href:
+                            telefone = href[4:].strip()
+
+                        elif (
+                            href.startswith(("http://", "https://"))
+                            and "google." not in href
+                            and "goo.gl" not in href
+                        ):
                             website = href
-                        elif label and any(k in label.lower() for k in ["rua ", "avenida ", "av. ", "rodovia ", "estrada "]):
+
+                        if not endereco and re.search(
+                            r"\b(Rua|R\.|Avenida|Av\.|Rodovia|Estrada|Travessa|Praça)\b",
+                            label,
+                            re.I,
+                        ):
                             endereco = label
                 except Exception:
                     pass
 
-                # Heurística simples para endereço e telefone no texto do cartão.
-                import re
                 for line in lines[1:]:
-                    if not endereco and re.search(r'\b(Rua|Av\.?|Avenida|Rodovia|Estrada|R\.)\b', line, re.I):
+                    if not endereco and re.search(
+                        r"\b(Rua|R\.|Avenida|Av\.|Rodovia|Estrada|Travessa|Praça)\b",
+                        line,
+                        re.I,
+                    ):
                         endereco = line
-                    if not telefone and re.search(r'(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-.\s]?\d{4}', line):
+
+                    if not telefone and re.search(
+                        r"(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-.\s]?\d{4}",
+                        line,
+                    ):
                         telefone = line
 
                 results.append({
@@ -97,18 +115,20 @@ def search_google_maps(niche, city, state, quantity=5):
                     "instagram": None,
                 })
 
-            # Fallback: se role=article não funcionou, usa links de lugares.
             if not results:
-                place_links = page.locator('a[href*="/maps/place/"]')
+                # Fallback simples para nomes de lugares.
+                links = page.locator('a[href*="/maps/place/"]')
                 seen = set()
-                for i in range(min(place_links.count(), quantity * 2)):
-                    a = place_links.nth(i)
-                    name = (a.inner_text() or "").strip()
-                    href = a.get_attribute("href")
-                    if name and href and name not in seen:
-                        seen.add(name)
+
+                for i in range(min(links.count(), quantity * 2)):
+                    link = links.nth(i)
+                    name = (link.inner_text() or "").strip().splitlines()
+                    href = link.get_attribute("href")
+
+                    if name and href and name[0] not in seen:
+                        seen.add(name[0])
                         results.append({
-                            "nome": name.splitlines()[0].strip(),
+                            "nome": name[0],
                             "cidade": city,
                             "estado": state,
                             "endereco": None,
@@ -117,11 +137,14 @@ def search_google_maps(niche, city, state, quantity=5):
                             "website": None,
                             "instagram": None,
                         })
-                        if len(results) >= quantity:
-                            break
+
+                    if len(results) >= quantity:
+                        break
 
         except PlaywrightTimeoutError:
-            raise RuntimeError("A página demorou demais para responder.")
+            raise RuntimeError(
+                "A pesquisa demorou demais para responder."
+            )
         finally:
             browser.close()
 

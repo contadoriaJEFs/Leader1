@@ -1,25 +1,26 @@
 import streamlit as st
 import pandas as pd
-from scraper.maps import search_google_maps
-from scraper.website import enrich_lead
-from scraper.normalizer import deduplicate_leads
-from utils.exporter import leads_to_json, leads_to_csv
-from utils.logger import get_logger
 
-st.set_page_config(page_title="Lead Scraper Local", page_icon="🔎", layout="wide")
+from maps import search_google_maps
+from website import enrich_lead
+from normalizer import deduplicate_leads
+from exporter import leads_to_json, leads_to_csv
+from logger import get_logger
+
+st.set_page_config(page_title="Lead Scraper", page_icon="🔎", layout="wide")
 
 logger = get_logger()
 
 st.title("🔎 Gerador de Leads Locais")
-st.caption("Pesquisa pública de empresas e enriquecimento básico de dados. Não contorna CAPTCHAs ou mecanismos anti-bot.")
+st.write("Pesquisa pública de empresas e enriquecimento básico de dados.")
 
 with st.sidebar:
-    st.header("Parâmetros")
-    niche = st.text_input("Nicho / termo de busca", "Escritório de Advocacia")
+    st.header("Pesquisa")
+    niche = st.text_input("Nicho / termo", "Escritório de Advocacia")
     city = st.text_input("Cidade", "Recife")
     state = st.text_input("UF", "PE")
-    quantity = st.number_input("Quantidade", min_value=1, max_value=100, value=5, step=1)
-    enrich = st.checkbox("Tentar encontrar WhatsApp e Instagram no site", value=True)
+    quantity = st.number_input("Quantidade", 1, 100, 5)
+    enrich = st.checkbox("Pesquisar WhatsApp e Instagram no site", True)
 
 if "leads" not in st.session_state:
     st.session_state.leads = []
@@ -34,37 +35,45 @@ if st.button("🔎 Iniciar busca", type="primary"):
 
     try:
         status.info("Abrindo a pesquisa...")
-        raw = search_google_maps(niche.strip(), city.strip(), state.strip(), int(quantity))
-        progress.progress(35)
+        leads = search_google_maps(
+            niche.strip(), city.strip(), state.strip(), int(quantity)
+        )
+        progress.progress(40)
 
-        status.info(f"{len(raw)} resultados encontrados. Normalizando...")
-        leads = deduplicate_leads(raw)
+        leads = deduplicate_leads(leads)
         progress.progress(50)
 
-        if enrich:
-            total = len(leads)
+        if enrich and leads:
             for i, lead in enumerate(leads):
-                status.info(f"Enriquecendo {i+1}/{total}: {lead.get('nome', '')}")
+                status.info(
+                    f"Enriquecendo {i + 1}/{len(leads)}: "
+                    f"{lead.get('nome') or 'empresa'}"
+                )
                 try:
                     leads[i] = enrich_lead(lead)
                 except Exception as exc:
                     logger.exception("Erro no enriquecimento: %s", exc)
-                progress.progress(50 + int(((i + 1) / max(total, 1)) * 45))
+                progress.progress(50 + int(((i + 1) / len(leads)) * 50))
 
         st.session_state.leads = leads
+        status.success(f"Busca concluída: {len(leads)} lead(s).")
         progress.progress(100)
-        status.success(f"Concluído: {len(leads)} lead(s).")
+
     except Exception as exc:
-        logger.exception("Erro geral: %s", exc)
-        st.error(f"Não foi possível concluir a busca: {exc}")
+        logger.exception("Erro na busca: %s", exc)
+        st.error(str(exc))
 
 leads = st.session_state.leads
 
 if leads:
     df = pd.DataFrame(leads)
-    preferred = ["nome", "cidade", "estado", "endereco", "telefone", "whatsapp", "website", "instagram"]
-    cols = [c for c in preferred if c in df.columns]
-    df = df[cols]
+
+    columns = [
+        "nome", "cidade", "estado", "endereco",
+        "telefone", "whatsapp", "website", "instagram"
+    ]
+    columns = [c for c in columns if c in df.columns]
+    df = df[columns]
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Leads", len(df))
@@ -76,16 +85,16 @@ if leads:
 
     st.download_button(
         "⬇️ Exportar JSON",
-        data=leads_to_json(leads),
-        file_name=f"leads_{city.lower().replace(' ', '_')}.json",
-        mime="application/json",
+        leads_to_json(leads),
+        f"leads_{city.lower().replace(' ', '_')}.json",
+        "application/json",
     )
 
     st.download_button(
         "⬇️ Exportar CSV",
-        data=leads_to_csv(leads),
-        file_name=f"leads_{city.lower().replace(' ', '_')}.csv",
-        mime="text/csv",
+        leads_to_csv(leads),
+        f"leads_{city.lower().replace(' ', '_')}.csv",
+        "text/csv",
     )
 else:
-    st.info("Preencha os parâmetros e clique em “Iniciar busca”.")
+    st.info("Informe os parâmetros e clique em Iniciar busca.")

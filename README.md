@@ -1,50 +1,36 @@
-# Lead Scraper Local — Streamlit
+# Leader1 — Gerador de Leads
 
-Aplicação experimental para pesquisa pública de empresas locais, com exportação JSON/CSV e enriquecimento básico do website.
+Projeto Streamlit com todos os módulos na raiz do repositório.
 
-## Deploy no Streamlit Community Cloud
+## Estrutura
 
-1. Crie um repositório público ou privado no GitHub.
-2. Envie todos os arquivos deste projeto.
-3. No Streamlit Community Cloud, selecione o repositório e o arquivo `app.py`.
-4. Faça o deploy.
-5. O endereço da aplicação será fornecido pelo Streamlit.
+- app.py — aplicação principal
+- maps.py — pesquisa
+- website.py — WhatsApp e Instagram
+- normalizer.py — normalização e deduplicação
+- exporter.py — JSON e CSV
+- logger.py — logs
+- requirements.txt — dependências Python
+- packages.txt — pacotes do sistema
 
-## Observação sobre Playwright
+## Streamlit
 
-O aplicativo usa Playwright para abrir a pesquisa do Google Maps. O navegador Chromium precisa estar disponível no ambiente de execução.
+No Streamlit Community Cloud, use:
 
-Se o ambiente de deploy não instalar o navegador automaticamente, será necessário ajustar a configuração de build do Streamlit/ambiente. O código não tenta resolver CAPTCHAs, fazer login ou contornar bloqueios.
+Main file path:
+app.py
 
-## Uso
+## Atenção ao Playwright
 
-Informe:
-- Nicho
-- Cidade
-- UF
-- Quantidade
+O projeto usa Playwright/Chromium para a pesquisa automatizada. O ambiente de hospedagem precisa disponibilizar o navegador Chromium.
 
-Clique em **Iniciar busca**.
+A aplicação não resolve CAPTCHA, não faz login e não tenta contornar mecanismos anti-bot.
 
-Depois, exporte JSON ou CSV.
+## Uso inicial
 
-## Estrutura do JSON
+Nicho: Escritório de Advocacia
+Cidade: Recife
+UF: PE
+Quantidade: 5
 
-Cada lead possui:
-
-- nome
-- cidade
-- estado
-- endereco
-- telefone
-- whatsapp
-- website
-- instagram
-
-Campos não encontrados ficam como `null`.
-
-## Limitações
-
-O DOM do Google Maps pode mudar. A coleta deve ser considerada um protótipo e pode exigir manutenção dos seletores.
-
-Respeite as regras e termos aplicáveis aos sites consultados e não tente contornar mecanismos de segurança.
+Depois clique em Iniciar busca.
