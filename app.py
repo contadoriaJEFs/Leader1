@@ -8,7 +8,6 @@ from exporter import leads_to_json, leads_to_csv
 from logger import get_logger
 
 st.set_page_config(page_title="Lead Scraper", page_icon="🔎", layout="wide")
-
 logger = get_logger()
 
 st.title("🔎 Gerador de Leads Locais")
@@ -19,7 +18,6 @@ with st.sidebar:
     niche = st.text_input("Nicho / termo", "Escritório de Advocacia")
     city = st.text_input("Cidade", "Recife")
     state = st.text_input("UF", "PE")
-
     quantity = st.number_input(
         "Quantidade de leads",
         min_value=1,
@@ -28,7 +26,6 @@ with st.sidebar:
         step=1,
         help="O sistema tenta carregar resultados até atingir esta quantidade."
     )
-
     enrich = st.checkbox(
         "Pesquisar WhatsApp e Instagram no site",
         value=True
@@ -51,14 +48,12 @@ if st.button("🔎 Iniciar busca", type="primary"):
             f"{city}/{state}..."
         )
 
+        # Sem callback: compatível também com uma cópia anterior de maps.py.
         leads = search_google_maps(
             niche.strip(),
             city.strip(),
             state.strip(),
             int(quantity),
-            progress_callback=lambda current, target: progress.progress(
-                min(35, max(1, int(current / max(target, 1) * 35)))
-            ),
         )
 
         progress.progress(40)
@@ -78,9 +73,7 @@ if st.button("🔎 Iniciar busca", type="primary"):
                 try:
                     leads[i] = enrich_lead(lead)
                 except Exception as exc:
-                    logger.exception(
-                        "Erro no enriquecimento: %s", exc
-                    )
+                    logger.exception("Erro no enriquecimento: %s", exc)
 
                 progress.progress(
                     50 + int(((i + 1) / total) * 50)
@@ -88,7 +81,7 @@ if st.button("🔎 Iniciar busca", type="primary"):
 
         st.session_state.leads = leads
 
-        if len(leads) >= quantity:
+        if len(leads) >= int(quantity):
             status.success(
                 f"Busca concluída: {len(leads)} lead(s) encontrados."
             )
@@ -121,28 +114,23 @@ if leads:
         "website",
         "instagram",
     ]
-
     columns = [c for c in columns if c in df.columns]
     df = df[columns]
 
     c1, c2, c3, c4, c5 = st.columns(5)
-
-    c1.metric("Solicitados", quantity if "quantity" in locals() else len(df))
+    c1.metric("Solicitados", int(quantity))
     c2.metric("Encontrados", len(df))
     c3.metric(
         "Telefones",
-        int(df["telefone"].notna().sum())
-        if "telefone" in df else 0
+        int(df["telefone"].notna().sum()) if "telefone" in df else 0
     )
     c4.metric(
         "WhatsApp",
-        int(df["whatsapp"].notna().sum())
-        if "whatsapp" in df else 0
+        int(df["whatsapp"].notna().sum()) if "whatsapp" in df else 0
     )
     c5.metric(
         "Instagram",
-        int(df["instagram"].notna().sum())
-        if "instagram" in df else 0
+        int(df["instagram"].notna().sum()) if "instagram" in df else 0
     )
 
     st.dataframe(
@@ -151,16 +139,13 @@ if leads:
         hide_index=True,
         column_config={
             "website": st.column_config.LinkColumn(
-                "Website",
-                display_text="Abrir site"
+                "Website", display_text="Abrir site"
             ),
             "whatsapp": st.column_config.LinkColumn(
-                "WhatsApp",
-                display_text="Abrir WhatsApp"
+                "WhatsApp", display_text="Abrir WhatsApp"
             ),
             "instagram": st.column_config.LinkColumn(
-                "Instagram",
-                display_text="Abrir Instagram"
+                "Instagram", display_text="Abrir Instagram"
             ),
         },
     )

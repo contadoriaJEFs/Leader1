@@ -44,3 +44,7 @@ Quantidade: 15
 ## Observação
 
 A estrutura e os seletores do Google Maps podem mudar. A aplicação não resolve CAPTCHA, não faz login e não tenta contornar mecanismos de segurança.
+
+
+## V3.1
+Correção de compatibilidade: `app.py` não exige mais o argumento opcional `progress_callback` ao chamar o módulo de pesquisa.
