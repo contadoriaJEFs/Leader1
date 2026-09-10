@@ -9,11 +9,8 @@ from logger import get_logger
 logger = get_logger()
 
 PHONE_RE = re.compile(
-    r"(?<!\d)"
-    r"(?:\+?55[\s.-]*)?"
-    r"(?:\(?\d{2}\)?[\s.-]*)?"
-    r"(?:9[\s.-]*)?\d{4}[\s.-]*\d{4}"
-    r"(?!\d)"
+    r"(?<!\d)(?:\+?55[\s.-]*)?(?:\(?\d{2}\)?[\s.-]*)?"
+    r"(?:9[\s.-]*)?\d{4}[\s.-]*\d{4}(?!\d)"
 )
 
 TIME_RANGE_RE = re.compile(
@@ -44,17 +41,11 @@ def _chromium_executable():
     return None
 
 def _looks_like_phone(value):
-    if not value:
-        return False
-
-    value = value.strip()
-
-    if TIME_RANGE_RE.match(value):
+    if not value or TIME_RANGE_RE.match(value.strip()):
         return False
 
     digits = re.sub(r"\D", "", value)
 
-    # Evita falsos positivos de horários e números muito curtos.
     if len(digits) not in (8, 9, 10, 11, 12, 13):
         return False
 
@@ -81,16 +72,13 @@ def _is_hours_line(line):
     if DAY_RE.search(low):
         return True
 
-    keywords = (
-        "aberto",
-        "fecha",
-        "fechado",
-        "horário",
-        "horario",
-        "24 horas",
-    )
-
-    return any(k in low for k in keywords) and not _looks_like_phone(clean)
+    return any(
+        keyword in low
+        for keyword in (
+            "aberto", "fecha", "fechado",
+            "horário", "horario", "24 horas"
+        )
+    ) and not _looks_like_phone(clean)
 
 def _extract_hours(lines):
     values = []
@@ -125,25 +113,14 @@ def _current_count(page):
         return 0
 
 def _scroll_results(page, target, progress_callback=None):
-    """
-    Carrega progressivamente o feed do Google Maps.
-
-    A rotina:
-    - verifica a quantidade atual;
-    - rola o feed;
-    - aguarda o carregamento;
-    - verifica novamente;
-    - repete até atingir o alvo ou detectar que não há crescimento.
-    """
     feed = page.locator('div[role="feed"]')
 
     best_count = _current_count(page)
     stagnant = 0
 
-    # Para 15, por exemplo, são permitidas muitas tentativas.
-    max_rounds = max(20, min(100, target * 5))
+    max_rounds = max(25, min(120, target * 6))
 
-    for round_no in range(max_rounds):
+    for _ in range(max_rounds):
         count = _current_count(page)
 
         if count > best_count:
@@ -158,20 +135,15 @@ def _scroll_results(page, target, progress_callback=None):
         if best_count >= target:
             return best_count
 
-        # Tenta rolar diretamente o feed e também com a roda do mouse.
         try:
             if feed.count() > 0:
                 feed.first.hover(timeout=2500)
-                page.mouse.wheel(0, 2200)
+                page.mouse.wheel(0, 2400)
             else:
-                page.mouse.wheel(0, 2200)
-        except Exception:
-            try:
                 page.mouse.wheel(0, 3000)
-            except Exception:
-                pass
+        except Exception:
+            pass
 
-        # Tempo variável para permitir carregamento assíncrono.
         page.wait_for_timeout(1800)
 
         new_count = _current_count(page)
@@ -180,13 +152,10 @@ def _scroll_results(page, target, progress_callback=None):
             best_count = new_count
             stagnant = 0
 
-        # Se ficou várias rodadas sem crescer, faz uma pausa maior
-        # antes de concluir.
         if stagnant in (4, 8, 12):
-            page.wait_for_timeout(3500)
+            page.wait_for_timeout(4000)
 
-        # Muitas rodadas sem qualquer crescimento: fim provável.
-        if stagnant >= 16:
+        if stagnant >= 18:
             break
 
     return best_count
@@ -208,10 +177,7 @@ def search_google_maps(
 
         launch_args = {
             "headless": True,
-            "args": [
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-            ],
+            "args": ["--disable-dev-shm-usage", "--no-sandbox"],
         }
 
         if executable:
@@ -230,11 +196,7 @@ def search_google_maps(
         )
 
         try:
-            page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=45000,
-            )
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
             page.wait_for_timeout(4500)
 
             body = page.locator("body").inner_text(timeout=5000).lower()
@@ -262,7 +224,6 @@ def search_google_maps(
             for i in range(count):
                 card = cards.nth(i)
                 text = _text(card)
-
                 lines = [
                     x.strip()
                     for x in text.splitlines()
@@ -285,7 +246,6 @@ def search_google_maps(
 
                         if href.startswith("tel:"):
                             candidate = href[4:].strip()
-
                             if _looks_like_phone(candidate):
                                 telefone = candidate
 
@@ -316,29 +276,20 @@ def search_google_maps(
                     "instagram": None,
                 })
 
-            # Fallback quando os cards não aparecem no DOM.
             if not results:
                 links = page.locator('a[href*="/maps/place/"]')
                 seen = set()
 
                 for i in range(min(links.count(), quantity * 2)):
                     link = links.nth(i)
-
-                    name_lines = (
-                        link.inner_text() or ""
-                    ).strip().splitlines()
-
+                    names = (link.inner_text() or "").strip().splitlines()
                     href = link.get_attribute("href")
 
-                    if (
-                        name_lines
-                        and href
-                        and name_lines[0] not in seen
-                    ):
-                        seen.add(name_lines[0])
+                    if names and href and names[0] not in seen:
+                        seen.add(names[0])
 
                         results.append({
-                            "nome": name_lines[0],
+                            "nome": names[0],
                             "cidade": city,
                             "estado": state,
                             "endereco": None,
@@ -353,9 +304,7 @@ def search_google_maps(
                         break
 
         except PlaywrightTimeoutError:
-            raise RuntimeError(
-                "A pesquisa demorou demais para responder."
-            )
+            raise RuntimeError("A pesquisa demorou demais para responder.")
         finally:
             browser.close()
 

@@ -3,13 +3,13 @@ from pathlib import Path
 
 Path("logs").mkdir(exist_ok=True)
 
-logger = logging.getLogger("lead_scraper")
+logger = logging.getLogger("leader1")
 logger.setLevel(logging.INFO)
 
 if not logger.handlers:
     handler = logging.FileHandler(
         "logs/app.log",
-        encoding="utf-8"
+        encoding="utf-8",
     )
     handler.setFormatter(
         logging.Formatter(

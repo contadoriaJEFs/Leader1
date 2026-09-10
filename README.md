@@ -1,44 +1,51 @@
-# Leader1 V4 — Gerador de Leads Locais
+# Leader1 V5
 
-## V4
+Gerador de leads locais com pesquisa, enriquecimento e base histórica.
 
-Esta versão separa claramente:
+## Recursos
 
-1. **Coleta dos resultados**
-2. **Enriquecimento dos resultados**
+- Pesquisa de empresas no Google Maps.
+- Carregamento progressivo do painel de resultados.
+- Quantidade solicitada de 1 a 100.
+- Telefone separado do horário de funcionamento.
+- Enriquecimento básico de WhatsApp e Instagram a partir do site.
+- Importação de um ou vários JSON.
+- Deduplicação da base.
+- Pesquisa somente de novos leads.
+- Consolidação da base antiga com a pesquisa atual.
+- Complementação de campos vazios quando uma pesquisa nova traz informação adicional.
+- JSON da pesquisa.
+- JSON consolidado.
+- CSV da pesquisa.
+- CSV consolidado.
 
-A busca tenta carregar progressivamente o feed do Google Maps até atingir a quantidade solicitada.
+## Estrutura
 
-### Campos
+Todos os módulos ficam na raiz:
 
-- nome
-- cidade
-- estado
-- endereco
-- telefone
-- horario_funcionamento
-- whatsapp
-- website
-- instagram
+- app.py
+- maps.py
+- website.py
+- normalizer.py
+- exporter.py
+- logger.py
+- requirements.txt
+- packages.txt
 
-### Correções
+## Deploy
 
-- Rolagem mais persistente do painel de resultados.
-- Até 100 resultados solicitáveis.
-- Contagem separada de solicitados e coletados.
-- Horário de funcionamento separado do telefone.
-- Proteção contra falsos telefones causados por horários.
-- Enriquecimento executado somente depois da coleta.
-- JSON e CSV.
-
-## Streamlit
+No Streamlit Community Cloud:
 
 Main file path:
-
 `app.py`
 
-Teste recomendado:
+## Fluxo de uso
 
-`Academias / Recife / PE / 15`
+1. Opcionalmente importe uma ou mais bases JSON.
+2. Marque "Ignorar empresas já existentes".
+3. Informe nicho, cidade, UF e quantidade.
+4. Execute a pesquisa.
+5. Exporte o JSON da pesquisa.
+6. Exporte o JSON consolidado quando quiser atualizar sua base.
 
 A aplicação não resolve CAPTCHA, não faz login e não tenta contornar mecanismos de segurança.
