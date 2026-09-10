@@ -15,17 +15,19 @@ st.caption("Pesquisa pública de empresas e enriquecimento básico de dados.")
 
 with st.sidebar:
     st.header("Pesquisa")
-    niche = st.text_input("Nicho / termo", "Escritório de Advocacia")
+    niche = st.text_input("Nicho / termo", "Academias")
     city = st.text_input("Cidade", "Recife")
     state = st.text_input("UF", "PE")
+
     quantity = st.number_input(
         "Quantidade de leads",
         min_value=1,
         max_value=100,
         value=15,
         step=1,
-        help="O sistema tenta carregar resultados até atingir esta quantidade."
+        help="O sistema tenta carregar resultados até atingir a quantidade solicitada."
     )
+
     enrich = st.checkbox(
         "Pesquisar WhatsApp e Instagram no site",
         value=True
@@ -33,6 +35,8 @@ with st.sidebar:
 
 if "leads" not in st.session_state:
     st.session_state.leads = []
+if "requested" not in st.session_state:
+    st.session_state.requested = 0
 
 if st.button("🔎 Iniciar busca", type="primary"):
     if not niche.strip() or not city.strip():
@@ -43,25 +47,38 @@ if st.button("🔎 Iniciar busca", type="primary"):
     status = st.empty()
 
     try:
+        requested = int(quantity)
+        st.session_state.requested = requested
+
         status.info(
-            f"Buscando até {int(quantity)} resultado(s) em "
-            f"{city}/{state}..."
+            f"Coletando resultados: até {requested} "
+            f"para {niche} em {city}/{state}..."
         )
 
-        # Sem callback: compatível também com uma cópia anterior de maps.py.
+        # ETAPA 1: somente coleta.
         leads = search_google_maps(
             niche.strip(),
             city.strip(),
             state.strip(),
-            int(quantity),
+            requested,
+            progress_callback=lambda current, target: progress.progress(
+                min(50, max(1, int(current / max(target, 1) * 50)))
+            ),
         )
 
-        progress.progress(40)
-
+        # Deduplicação antes do enriquecimento.
         leads = deduplicate_leads(leads)
+        st.session_state.leads = leads
         progress.progress(50)
 
+        status.success(
+            f"Coleta concluída: {len(leads)} de {requested} "
+            f"resultado(s) solicitados."
+        )
+
+        # ETAPA 2: enriquecimento.
         if enrich and leads:
+            status.info("Iniciando enriquecimento dos dados...")
             total = len(leads)
 
             for i, lead in enumerate(leads):
@@ -73,26 +90,18 @@ if st.button("🔎 Iniciar busca", type="primary"):
                 try:
                     leads[i] = enrich_lead(lead)
                 except Exception as exc:
-                    logger.exception("Erro no enriquecimento: %s", exc)
+                    logger.exception(
+                        "Erro no enriquecimento: %s", exc
+                    )
 
+                st.session_state.leads = leads
                 progress.progress(
                     50 + int(((i + 1) / total) * 50)
                 )
 
-        st.session_state.leads = leads
-
-        if len(leads) >= int(quantity):
             status.success(
-                f"Busca concluída: {len(leads)} lead(s) encontrados."
+                f"Processamento concluído: {len(leads)} lead(s)."
             )
-        else:
-            status.warning(
-                f"Foram encontrados {len(leads)} de {int(quantity)} "
-                f"solicitados. O Google pode não ter disponibilizado "
-                f"mais resultados nessa pesquisa."
-            )
-
-        progress.progress(100)
 
     except Exception as exc:
         logger.exception("Erro na busca: %s", exc)
@@ -117,21 +126,40 @@ if leads:
     columns = [c for c in columns if c in df.columns]
     df = df[columns]
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Solicitados", int(quantity))
-    c2.metric("Encontrados", len(df))
+    requested = st.session_state.get("requested", len(df))
+
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Solicitados", requested)
+    c2.metric("Coletados", len(df))
     c3.metric(
         "Telefones",
         int(df["telefone"].notna().sum()) if "telefone" in df else 0
     )
     c4.metric(
+        "Horários",
+        int(df["horario_funcionamento"].notna().sum())
+        if "horario_funcionamento" in df else 0
+    )
+    c5.metric(
         "WhatsApp",
         int(df["whatsapp"].notna().sum()) if "whatsapp" in df else 0
     )
-    c5.metric(
+    c6.metric(
         "Instagram",
         int(df["instagram"].notna().sum()) if "instagram" in df else 0
     )
+
+    if len(df) < requested:
+        st.warning(
+            f"A coleta retornou {len(df)} resultado(s), "
+            f"embora tenham sido solicitados {requested}. "
+            "Isso significa que a rolagem chegou ao limite disponível "
+            "ou que o Maps não carregou novos resultados."
+        )
+    else:
+        st.success(
+            f"Quantidade atingida: {len(df)} resultado(s) coletados."
+        )
 
     st.dataframe(
         df,

@@ -26,10 +26,7 @@ def enrich_lead(lead):
 
         lead["website"] = response.url
 
-        soup = BeautifulSoup(
-            response.text,
-            "html.parser"
-        )
+        soup = BeautifulSoup(response.text, "html.parser")
 
         for tag in soup.find_all("a", href=True):
             href = tag["href"].strip()

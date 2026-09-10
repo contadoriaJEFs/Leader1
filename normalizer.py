@@ -18,7 +18,6 @@ def normalize_phone(phone):
 
     value = re.sub(r"\s+", " ", str(phone)).strip()
 
-    # Segurança adicional contra horários.
     if re.fullmatch(
         r"\d{1,2}[:h]\d{2}\s*(?:[-–—]|às|a)\s*\d{1,2}[:h]\d{2}",
         value,
@@ -39,9 +38,7 @@ def normalize_lead(lead):
 
         result[field] = value or None
 
-    result["telefone"] = normalize_phone(
-        result["telefone"]
-    )
+    result["telefone"] = normalize_phone(result["telefone"])
 
     return result
 
@@ -55,11 +52,7 @@ def deduplicate_leads(leads):
         key = (
             (lead["nome"] or "").lower(),
             (lead["endereco"] or "").lower(),
-            re.sub(
-                r"\D",
-                "",
-                lead["telefone"] or ""
-            ),
+            re.sub(r"\D", "", lead["telefone"] or ""),
         )
 
         if key in seen:

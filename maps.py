@@ -8,8 +8,6 @@ from logger import get_logger
 
 logger = get_logger()
 
-# Telefones brasileiros comuns. Horários como 08:00–18:00 são
-# deliberadamente excluídos.
 PHONE_RE = re.compile(
     r"(?<!\d)"
     r"(?:\+?55[\s.-]*)?"
@@ -18,35 +16,14 @@ PHONE_RE = re.compile(
     r"(?!\d)"
 )
 
-TIME_RE = re.compile(
-    r"^\s*(?:\d{1,2}[:h]\d{2})\s*(?:[-–—]|às|a)\s*"
-    r"(?:\d{1,2}[:h]\d{2})\s*$",
-    re.I
+TIME_RANGE_RE = re.compile(
+    r"^\s*\d{1,2}[:h]\d{2}\s*(?:[-–—]|às|a)\s*\d{1,2}[:h]\d{2}\s*$",
+    re.I,
 )
 
 DAY_RE = re.compile(
-    r"\b("
-    r"segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo"
-    r")\b",
-    re.I
-)
-
-HOURS_KEYWORDS = (
-    "aberto",
-    "fecha",
-    "fechado",
-    "horário",
-    "horario",
-    "24 horas",
-    "segunda",
-    "terça",
-    "terca",
-    "quarta",
-    "quinta",
-    "sexta",
-    "sábado",
-    "sabado",
-    "domingo",
+    r"\b(segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo)\b",
+    re.I,
 )
 
 def _text(locator):
@@ -72,22 +49,16 @@ def _looks_like_phone(value):
 
     value = value.strip()
 
-    # Nunca tratar uma faixa de horário como telefone.
-    if TIME_RE.match(value):
+    if TIME_RANGE_RE.match(value):
         return False
 
-    # Evita capturar linhas puramente horárias.
-    if re.search(r"\b(?:horas?|h)\b", value, re.I):
+    digits = re.sub(r"\D", "", value)
+
+    # Evita falsos positivos de horários e números muito curtos.
+    if len(digits) not in (8, 9, 10, 11, 12, 13):
         return False
 
-    match = PHONE_RE.search(value)
-    if not match:
-        return False
-
-    digits = re.sub(r"\D", "", match.group(0))
-
-    # Brasil: 10/11 dígitos com DDD; 8/9 podem aparecer localmente.
-    return len(digits) in (8, 9, 10, 11, 12, 13)
+    return bool(PHONE_RE.search(value))
 
 def _extract_phone(lines):
     for line in lines:
@@ -97,64 +68,47 @@ def _extract_phone(lines):
                 return match.group(0).strip()
     return None
 
-def _looks_like_hours(line):
+def _is_hours_line(line):
     if not line:
         return False
 
-    low = line.lower().strip()
+    clean = re.sub(r"\s+", " ", line).strip()
+    low = clean.lower()
+
+    if TIME_RANGE_RE.match(clean):
+        return True
 
     if DAY_RE.search(low):
         return True
 
-    if any(keyword in low for keyword in HOURS_KEYWORDS):
-        # Não aceitar uma linha que seja apenas um telefone.
-        if not _looks_like_phone(line):
-            return True
+    keywords = (
+        "aberto",
+        "fecha",
+        "fechado",
+        "horário",
+        "horario",
+        "24 horas",
+    )
 
-    # Faixas horárias isoladas, por exemplo 08:00–18:00.
-    if TIME_RE.match(line):
-        return True
-
-    return False
+    return any(k in low for k in keywords) and not _looks_like_phone(clean)
 
 def _extract_hours(lines):
-    found = []
+    values = []
 
     for line in lines:
         clean = re.sub(r"\s+", " ", line).strip()
 
-        if not clean:
-            continue
+        if _is_hours_line(clean) and len(clean) <= 220:
+            if clean not in values:
+                values.append(clean)
 
-        if _looks_like_hours(clean):
-            # Evita transformar textos enormes do cartão em "horário".
-            if len(clean) <= 180:
-                found.append(clean)
-
-    # Remove duplicados mantendo a ordem.
-    unique = []
-    seen = set()
-
-    for item in found:
-        key = item.lower()
-        if key not in seen:
-            seen.add(key)
-            unique.append(item)
-
-    return " | ".join(unique) if unique else None
+    return " | ".join(values) if values else None
 
 def _extract_address(lines):
     patterns = (
-        r"\bRua\b",
-        r"\bR\.",
-        r"\bAvenida\b",
-        r"\bAv\.",
-        r"\bRodovia\b",
-        r"\bEstrada\b",
-        r"\bTravessa\b",
-        r"\bPraça\b",
-        r"\bPraia\b",
-        r"\bAlameda\b",
+        r"\bRua\b", r"\bR\.", r"\bAvenida\b", r"\bAv\.",
+        r"\bRodovia\b", r"\bEstrada\b", r"\bTravessa\b",
+        r"\bPraça\b", r"\bPraia\b", r"\bAlameda\b",
         r"\bLadeira\b",
     )
 
@@ -164,60 +118,85 @@ def _extract_address(lines):
 
     return None
 
+def _current_count(page):
+    try:
+        return page.locator('div[role="article"]').count()
+    except Exception:
+        return 0
+
 def _scroll_results(page, target, progress_callback=None):
     """
-    Rola o painel de resultados para forçar o carregamento progressivo.
-    O Google Maps pode apresentar menos resultados do que o solicitado.
+    Carrega progressivamente o feed do Google Maps.
+
+    A rotina:
+    - verifica a quantidade atual;
+    - rola o feed;
+    - aguarda o carregamento;
+    - verifica novamente;
+    - repete até atingir o alvo ou detectar que não há crescimento.
     """
     feed = page.locator('div[role="feed"]')
 
-    previous_count = 0
-    stagnant_rounds = 0
+    best_count = _current_count(page)
+    stagnant = 0
 
-    # Limite de segurança: não ficar rolando indefinidamente.
-    max_rounds = max(12, min(60, target * 3))
+    # Para 15, por exemplo, são permitidas muitas tentativas.
+    max_rounds = max(20, min(100, target * 5))
 
     for round_no in range(max_rounds):
-        cards = page.locator('div[role="article"]')
-        count = cards.count()
+        count = _current_count(page)
+
+        if count > best_count:
+            best_count = count
+            stagnant = 0
+        else:
+            stagnant += 1
 
         if progress_callback:
-            progress_callback(min(count, target), target)
+            progress_callback(min(best_count, target), target)
 
-        if count >= target:
-            return count
+        if best_count >= target:
+            return best_count
 
-        if count == previous_count:
-            stagnant_rounds += 1
-        else:
-            stagnant_rounds = 0
-
-        # Depois de algumas rodadas sem crescimento, ainda fazemos
-        # algumas tentativas, pois o carregamento pode ser lento.
-        if stagnant_rounds >= 5:
-            break
-
-        previous_count = count
-
+        # Tenta rolar diretamente o feed e também com a roda do mouse.
         try:
             if feed.count() > 0:
-                feed.last.hover(timeout=2000)
-                page.mouse.wheel(0, 1800)
+                feed.first.hover(timeout=2500)
+                page.mouse.wheel(0, 2200)
             else:
-                page.mouse.wheel(0, 1800)
-
-            page.wait_for_timeout(1800)
+                page.mouse.wheel(0, 2200)
         except Exception:
-            page.wait_for_timeout(1800)
+            try:
+                page.mouse.wheel(0, 3000)
+            except Exception:
+                pass
 
-    return page.locator('div[role="article"]').count()
+        # Tempo variável para permitir carregamento assíncrono.
+        page.wait_for_timeout(1800)
+
+        new_count = _current_count(page)
+
+        if new_count > best_count:
+            best_count = new_count
+            stagnant = 0
+
+        # Se ficou várias rodadas sem crescer, faz uma pausa maior
+        # antes de concluir.
+        if stagnant in (4, 8, 12):
+            page.wait_for_timeout(3500)
+
+        # Muitas rodadas sem qualquer crescimento: fim provável.
+        if stagnant >= 16:
+            break
+
+    return best_count
 
 def search_google_maps(
     niche,
     city,
     state,
     quantity=5,
-    progress_callback=None
+    progress_callback=None,
 ):
     query = f"{niche} {city} {state}".strip()
     url = "https://www.google.com/maps/search/" + quote_plus(query)
@@ -254,18 +233,18 @@ def search_google_maps(
             page.goto(
                 url,
                 wait_until="domcontentloaded",
-                timeout=45000
+                timeout=45000,
             )
-            page.wait_for_timeout(4000)
+            page.wait_for_timeout(4500)
 
             body = page.locator("body").inner_text(timeout=5000).lower()
 
-            if any(term in body for term in [
+            if any(term in body for term in (
                 "captcha",
                 "unusual traffic",
                 "não sou um robô",
                 "verificação",
-            ]):
+            )):
                 raise RuntimeError(
                     "O Google apresentou uma verificação/CAPTCHA. "
                     "A aplicação não tenta contornar esse mecanismo."
@@ -274,7 +253,7 @@ def search_google_maps(
             _scroll_results(
                 page,
                 quantity,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
             )
 
             cards = page.locator('div[role="article"]')
@@ -283,6 +262,7 @@ def search_google_maps(
             for i in range(count):
                 card = cards.nth(i)
                 text = _text(card)
+
                 lines = [
                     x.strip()
                     for x in text.splitlines()
@@ -305,6 +285,7 @@ def search_google_maps(
 
                         if href.startswith("tel:"):
                             candidate = href[4:].strip()
+
                             if _looks_like_phone(candidate):
                                 telefone = candidate
 
@@ -315,8 +296,10 @@ def search_google_maps(
                         ):
                             website = href
 
-                        if not endereco and _extract_address([label]):
-                            endereco = label
+                        if not endereco:
+                            address = _extract_address([label])
+                            if address:
+                                endereco = address
 
                 except Exception:
                     pass
@@ -333,16 +316,18 @@ def search_google_maps(
                     "instagram": None,
                 })
 
-            # Fallback para páginas em que os cards não foram expostos.
+            # Fallback quando os cards não aparecem no DOM.
             if not results:
                 links = page.locator('a[href*="/maps/place/"]')
                 seen = set()
 
                 for i in range(min(links.count(), quantity * 2)):
                     link = links.nth(i)
+
                     name_lines = (
                         link.inner_text() or ""
                     ).strip().splitlines()
+
                     href = link.get_attribute("href")
 
                     if (

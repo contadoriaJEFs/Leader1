@@ -1,29 +1,35 @@
-# Leader1 V3 — Gerador de Leads Locais
+# Leader1 V4 — Gerador de Leads Locais
 
-Aplicação Streamlit para pesquisa pública de empresas locais e enriquecimento básico.
+## V4
 
-## Estrutura
+Esta versão separa claramente:
 
-Todos os módulos ficam na raiz:
+1. **Coleta dos resultados**
+2. **Enriquecimento dos resultados**
 
-- `app.py` — interface
-- `maps.py` — pesquisa e carregamento progressivo
-- `website.py` — WhatsApp e Instagram
-- `normalizer.py` — normalização e deduplicação
-- `exporter.py` — JSON e CSV
-- `logger.py` — logs
-- `requirements.txt` — dependências Python
-- `packages.txt` — Chromium e dependências do sistema
+A busca tenta carregar progressivamente o feed do Google Maps até atingir a quantidade solicitada.
 
-## Novidades da V3
+### Campos
 
-- Tentativa de rolagem automática do painel de resultados.
-- Busca até a quantidade solicitada, dentro dos resultados disponibilizados.
-- Coluna `horario_funcionamento`.
-- Proteção para não interpretar horários como telefone.
-- Contadores de solicitados, encontrados e contatos.
-- Links clicáveis para site, WhatsApp e Instagram.
-- Aviso quando o Google disponibilizar menos resultados que o solicitado.
+- nome
+- cidade
+- estado
+- endereco
+- telefone
+- horario_funcionamento
+- whatsapp
+- website
+- instagram
+
+### Correções
+
+- Rolagem mais persistente do painel de resultados.
+- Até 100 resultados solicitáveis.
+- Contagem separada de solicitados e coletados.
+- Horário de funcionamento separado do telefone.
+- Proteção contra falsos telefones causados por horários.
+- Enriquecimento executado somente depois da coleta.
+- JSON e CSV.
 
 ## Streamlit
 
@@ -31,20 +37,8 @@ Main file path:
 
 `app.py`
 
-## Teste recomendado
+Teste recomendado:
 
-Nicho: Escritório de Advocacia
+`Academias / Recife / PE / 15`
 
-Cidade: Recife
-
-UF: PE
-
-Quantidade: 15
-
-## Observação
-
-A estrutura e os seletores do Google Maps podem mudar. A aplicação não resolve CAPTCHA, não faz login e não tenta contornar mecanismos de segurança.
-
-
-## V3.1
-Correção de compatibilidade: `app.py` não exige mais o argumento opcional `progress_callback` ao chamar o módulo de pesquisa.
+A aplicação não resolve CAPTCHA, não faz login e não tenta contornar mecanismos de segurança.
